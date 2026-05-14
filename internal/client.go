@@ -844,6 +844,20 @@ type (
 		// MaxPayloadSize is a number of bytes that gRPC would allow to travel to and from server. Defaults to 128 MB.
 		MaxPayloadSize int
 
+		// DisableServiceConfig prevents the SDK from setting a default gRPC service config.
+		// When true, no default service config is applied, which also prevents gRPC from
+		// attempting DNS TXT record lookups for service config.
+		//
+		// This is useful when connecting through load balancers where you don't control
+		// DNS and cannot create TXT records, avoiding connection delays from DNS timeouts.
+		//
+		// Note: grpc.WithDisableServiceConfig() in DialOptions does NOT achieve this because
+		// it only disables service config from resolvers, not configs set via
+		// grpc.WithDefaultServiceConfig().
+		//
+		// default: false (round_robin config is applied)
+		DisableServiceConfig bool
+
 		// Advanced dial options for gRPC connections. These are applied after the internal default dial options are
 		// applied. Therefore any dial options here may override internal ones. Dial options WithBlock, WithTimeout,
 		// WithReturnConnectionError, and FailOnNonTempDialError are ignored since [grpc.NewClient] is used.

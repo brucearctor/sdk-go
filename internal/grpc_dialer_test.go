@@ -335,6 +335,75 @@ func TestDialOptions(t *testing.T) {
 	require.Equal(t, expected, trace)
 }
 
+func TestDisableServiceConfig(t *testing.T) {
+	// Start a gRPC server
+	srv, err := startTestGRPCServer()
+	require.NoError(t, err)
+	defer srv.Stop()
+
+	// Default behavior (DisableServiceConfig = false): client should connect and work
+	client, err := DialClient(context.Background(), ClientOptions{
+		HostPort: srv.addr,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+	require.NoError(t, client.SignalWorkflow(context.Background(), "workflowid", "runid", "signalname", nil))
+
+	// With DisableServiceConfig = true: client should still connect and work
+	client2, err := DialClient(context.Background(), ClientOptions{
+		HostPort: srv.addr,
+		ConnectionOptions: ConnectionOptions{
+			DisableServiceConfig: true,
+		},
+	})
+	require.NoError(t, err)
+	defer client2.Close()
+	require.NoError(t, client2.SignalWorkflow(context.Background(), "workflowid", "runid", "signalname", nil))
+}
+
+func TestDisableServiceConfig_NoRoundRobin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create two gRPC servers
+	s1, err := startTestGRPCServer()
+	require.NoError(t, err)
+	defer s1.Stop()
+	s2, err := startTestGRPCServer()
+	require.NoError(t, err)
+	defer s2.Stop()
+
+	// Register resolver for both IPs
+	scheme := "test-no-rr-" + uuid.NewString()
+	builder := manual.NewBuilderWithScheme(scheme)
+	builder.InitialState(resolver.State{Addresses: []resolver.Address{{Addr: s1.addr}, {Addr: s2.addr}}})
+	resolver.Register(builder)
+
+	// With DisableServiceConfig, no round-robin should be configured by the SDK,
+	// so gRPC will use its default pick_first policy. All requests should go to
+	// a single server.
+	client, err := DialClient(context.Background(), ClientOptions{
+		HostPort: scheme + ":///whatever",
+		ConnectionOptions: ConnectionOptions{
+			DisableServiceConfig: true,
+		},
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Make several requests; with pick_first they should all go to one server
+	for i := 0; i < 4; i++ {
+		require.NoError(t, client.SignalWorkflow(ctx, "workflowid", "runid", "signalname", nil))
+	}
+
+	// One server should have all 4, the other should have 0
+	count1 := s1.signalWorkflowInvokeCount()
+	count2 := s2.signalWorkflowInvokeCount()
+	assert.Equal(t, 4, count1+count2, "total requests should be 4")
+	assert.True(t, count1 == 4 || count2 == 4,
+		"with pick_first (no round-robin), one server should receive all requests, got s1=%d s2=%d", count1, count2)
+}
+
 func TestCustomResolver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -92,8 +92,14 @@ func dial(params dialParameters) (*grpc.ClientConn, error) {
 	cp.Backoff.MaxDelay = retryPollOperationMaxInterval
 	opts := []grpc.DialOption{
 		grpc.WithChainUnaryInterceptor(params.RequiredInterceptors...),
-		grpc.WithDefaultServiceConfig(params.DefaultServiceConfig),
 		grpc.WithConnectParams(cp),
+	}
+	if params.UserConnectionOptions.DisableServiceConfig {
+		// Also add WithDisableServiceConfig to prevent gRPC from attempting
+		// DNS TXT record lookups for service config from resolvers.
+		opts = append(opts, grpc.WithDisableServiceConfig())
+	} else {
+		opts = append(opts, grpc.WithDefaultServiceConfig(params.DefaultServiceConfig))
 	}
 
 	opts = append(opts, securityOptions...)
